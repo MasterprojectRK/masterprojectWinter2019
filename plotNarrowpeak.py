@@ -6,7 +6,7 @@ import numpy as np
 from operator import itemgetter
 
 #small helper program to plot ChIPseq data in narrowpeak format
-#(first six columns like BED, then ChIPseq specific fields<s)
+#(first six columns like BED, then ChIPseq specific fields)
 
 
 parser = argparse.ArgumentParser(description="plot narrowpeak signals")
@@ -29,7 +29,7 @@ print("max. length of chipseq peaks: ", max(chipSeqGlobalLength))
 print("min. length of chipseq peaks: ", min(chipSeqGlobalLength))
 print("med. length of chipseq peaks: {0:d}".format( int(np.median(chipSeqGlobalLength)) ) )
 print("mean length of chipseq peaks: {0:d}".format( int(np.mean(chipSeqGlobalLength)) ) )
-print("Figures for Chromosome" + args.chromosome)
+print("Figures for Chromosome " + args.chromosome)
 print("number of chipseq peaks:", len(chipSeqX))
 print("max. length of chipseq peaks", max(chipSeqLength))
 print("min. length of chipseq peaks", min(chipSeqLength))
