@@ -12,8 +12,10 @@ parser.add_argument("chromosome", type=str, help="chromosome to plot data for")
 
 args = parser.parse_args()
 
-bindingSiteList = fileParsers.parseBedFile(args.bedfile)
-bindingSiteFilteredList = [row for row in bindingSiteList if row["SeqName"] == args.chromosome]
+bindingSiteGlobalList = fileParsers.parseBedFile(args.bedfile)
+bindingSiteGlobalFwd =  [row for row in bindingSiteGlobalList if row["Strand"] == "+"]
+bindingSiteGlobalRev = [row for row in bindingSiteGlobalList if row["Strand"] == "-"]
+bindingSiteFilteredList = [row for row in bindingSiteGlobalList if row["SeqName"] == args.chromosome]
 
 bindingSiteFwdList = [row for row in bindingSiteFilteredList if row["Strand"] == "+"]
 bindingSiteRevList = [row for row in bindingSiteFilteredList if row["Strand"] == "-"] 
@@ -23,6 +25,13 @@ bindingSiteFwdY = [row["Score"] for row in bindingSiteFwdList]
 
 bindingSiteRevX = [int((row["Start"] + row["End"]) / 2) for row in bindingSiteRevList]
 bindingSiteRevY = [-row["Score"] for row in bindingSiteRevList]
+
+print("number of putative binding sites, globally:", len(bindingSiteGlobalList))
+print("number of forward sites, globally", len(bindingSiteGlobalFwd))
+print("number of reverse sites, globally", len(bindingSiteGlobalRev))
+print("----------------")
+print("number of forward sites, " + args.chromosome + ": " + str(len(bindingSiteFwdList)))
+print("number of reverse sites, " + args.chromosome + ": " + str(len(bindingSiteRevList)))
 
 fig, ax = plt.subplots()
 ax.scatter(x = bindingSiteFwdX, y=bindingSiteFwdY)
