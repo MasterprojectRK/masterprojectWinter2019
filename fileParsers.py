@@ -9,6 +9,8 @@ def __fuzznucMismatchToNumber(pMismatchString):
         return 0 
 
 def parseFuzznuc(pFuzznucResultFileString):
+    #parse result file from fuzznuc in excel format
+    #which is a tab-delimited text file
     result = []
     with open(pFuzznucResultFileString) as csvfile:
         reader = csv.DictReader(csvfile, delimiter="\t")
@@ -21,6 +23,8 @@ def parseFuzznuc(pFuzznucResultFileString):
     return result
 
 def parseFimo(pFimoResultFileString):
+    #parse result file in tsv-format from fimo
+    #which is a tab-delimited text file
     result = []
     with open(pFimoResultFileString) as csvfile:
         reader = csv.DictReader(csvfile, delimiter="\t")
@@ -33,6 +37,8 @@ def parseFimo(pFimoResultFileString):
     return result
 
 def parseNarrowpeak(pNarrowpeakFileString):
+    #parse a narrowpeak file
+    #this is a BED text file with the first 6 columns as in standard BED plus 4 special columns 
     result = []
     fieldnames = ["Chromosome", "Start", "End", "Name", "Score", "Strand", "SignalValue", "PVal", "QVal", "Peak"]
     with open(pNarrowpeakFileString) as csvfile:
@@ -49,5 +55,29 @@ def parseNarrowpeak(pNarrowpeakFileString):
                     "QVal": float(row["QVal"]) ,\
                     "Peak": int(row["Peak"])
                     }
+            result.append(dDict)
+    return result
+
+def parseBedFile(pBedFileString):
+    #parse a standard BED file
+    #only the first 6 (standard) columns for now
+    #ignore comments (#), track, and browser data
+    result = []
+    fieldnames = ["SeqName", "Start", "End", "FeatureName",	"Score", "Strand", \
+                  "thickStart", "thickEnd", "itemRgb", "blockCount", "blockSizes", "blckStarts"]
+    with open(pBedFileString) as csvfile:
+        reader = csv.DictReader([row for row in csvfile if not row.startswith('#') \
+                                 and not row.startswith("track")
+                                 and not row.startswith("browser")], \
+                                 fieldnames=fieldnames, 
+                                 delimiter="\t")
+        for row in reader:
+            dDict = { "SeqName": row["SeqName"], \
+                        "Start": int(row["Start"]), \
+                        "End": int(row["End"]), \
+                        "FeatureName": row["FeatureName"], \
+                        "Score": float(row["Score"]), \
+                        "Strand": row["Strand"]}
+                        #remaining fields currently not needed
             result.append(dDict)
     return result
