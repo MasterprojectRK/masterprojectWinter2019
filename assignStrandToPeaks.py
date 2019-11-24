@@ -5,6 +5,7 @@ import matplotlib.transforms as tf
 import matplotlib.colors as colors
 import numpy as np
 import fileParsers
+import fileWriters
 import matplotlib.ticker as ticker
 from operator import itemgetter
 
@@ -46,7 +47,7 @@ def strandAssigner(pChipSeqList, pPosFwdList, pPosRevList, pDmax):
             element["Strand"] = "+"
         else:
             element["Strand"] = min(bestdiffFwd, bestdiffRev)
-
+            #element["Strand"] = "."
 
 
 parser = argparse.ArgumentParser(description="assign strand information to ChIP-seq data")
@@ -88,7 +89,7 @@ print("assigning peaks closer than {0:d} bp to putative binding sites".format(dm
 
 #try to assign a strand to the ChIP-seq peaks
 strandAssigner(chipSeqFilteredList, bindingSiteFwdList, bindingSiteRevList, dmaxInt)
-
+fileWriters.writeNarrowPeak("test.narrowPeak", [row for row in chipSeqFilteredList if row["Strand"] in ("+", "-")] )
           
 chipSeqFwd = [row for row in chipSeqFilteredList if row["Strand"] == "+"]
 chipSeqRev = [row for row in chipSeqFilteredList if row["Strand"] == "-"]
