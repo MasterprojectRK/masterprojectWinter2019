@@ -30,3 +30,12 @@ def writeBED(pOutfileName, pListOfDictsToWrite, pTrackString="", \
         for row in pListOfDictsToWrite:
             writer.writerow(row)
 
+def writeNarrowPeak(pOutfileName, pListOfDictsToWrite):
+    fieldnames = list(pListOfDictsToWrite[0].keys())
+    if len(fieldnames) != 10:
+        print("Warning: wrong number of columns in narrowPeak file")
+
+    with open(pOutfileName, "w", newline="") as outfile:
+        writer = csv.DictWriter(outfile, fieldnames=fieldnames, delimiter="\t")
+        for row in pListOfDictsToWrite:
+            writer.writerow(row)
