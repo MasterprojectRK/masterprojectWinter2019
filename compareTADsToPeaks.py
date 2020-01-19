@@ -90,7 +90,7 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
     msg = "{0:d} protein peaks for chr{1:s} found in input"
     print(msg.format(numberOfPeaks,chromosome))
     print("after binning:")
-    msg = "chr{0:s} has {1:d} bins, {2:d} of which have protein peaks"
+    msg = "chr{0:s} comprises {1:d} bins, {2:d} of which have protein peaks"
     print(msg.format(chromosome, maxBinInt, len(proteinDf.signalValue.to_numpy().nonzero()[0]) ))
     msg = "mean signal value: {0:.3f} (min {1:.3f}, max {2:.3f}, med {3:.3f})"
     print(msg.format(meanSignalValueOverall, minSignalValueOverall, maxSignalValueOverall, medianSignalValueOverall))
@@ -119,9 +119,10 @@ def getTadDataFromBedFile(pBedFilePath):
     tadData = None
     try:
         tadData = pd.read_table(pBedFilePath, header=None, names=['chrom', 'chromStart', 'chromEnd', 'name', 'score', 'strand', 'thickStart', 'thickEnd', 'itemRgb'], index_col=False)
-    except:
+    except Exception as exc:
         msg = "could not parse bed file {0:s} \n"
-        msg = "probably no valid bed file"
+        msg = "probably no valid TAD-domains file"
+        print("exception:", exc)
         raise ValueError(msg.format(pBedFilePath))
     tadData.drop(columns=['thickStart', 'thickEnd', 'itemRgb'], inplace=True)
     return tadData
