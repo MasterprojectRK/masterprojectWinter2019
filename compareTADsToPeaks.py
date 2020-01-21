@@ -3,6 +3,7 @@ import pybedtools
 import pandas as pd
 import math
 import numpy as np
+from matplotlib import pyplot as plt
 
 
 @click.option('--tadboundaryfile', '-tbf', type=click.Path(exists=True), required=True, help="bed file with TAD boundaries")
@@ -15,9 +16,9 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
     resolution = 20000
     #load and bin the narrowpeak file
     peakDf = getProteinDataFromPeakFile(narrowpeakfile)
-    numberOfPeaks = peakDf.shape[0]
-    peakDf = binProteinDataFromPeaks(peakDf, chromosome, 'mean', resolution)
-    #add such bins which have no protein peaks
+    peakDf, numberOfPeaks = binProteinDataFromPeaks(peakDf, chromosome, 'mean', resolution)
+    
+    #add bins which have no protein peaks
     chromsize = getChromSizes([chromosome],chromsizefile)[chromosome]
     maxBinInt = math.ceil(chromsize / resolution)
     proteinDf = pd.DataFrame(columns=['bin_id'])
@@ -83,7 +84,7 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
     zeroAtStartPlusMinusCount = tadDf[startPlusMinusMask].shape[0]
     zeroAtEndPlusMinusCount = tadDf[endPlusMinusMask].shape[0]
     zeroAtStartEndPlusMinusCount = tadDf[startPlusMinusMask & endPlusMinusMask].shape[0]
-    
+
     #print some figures
     msg = "{0:d} TADs for chr{1:s} found in input"
     print(msg.format(tadDf.shape[0],chromosome))
@@ -113,7 +114,27 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
     msg = "{0:d} of {1:d} TADs have no protein at start and end bin +/- {2:d} bins"
     print(msg.format(zeroAtStartEndPlusMinusCount, tadCount, nr_bins-1))
 
+    #build a pdf for signal values
+    valList = list(proteinDf.signalValue)
+    probabList = np.ones(len(valList)) * (1/proteinDf.shape[0])
+    
+    #build cdf for mean at TAD boundaries, nr TADs with no protein
+    meanArr = []
+    tadStartArr = []
+    for i in range(0,50000):
+        tadSignalVals = np.random.choice(valList, tadCount, replace=False,p=probabList)
+        meanArr.append(np.mean(tadSignalVals))
+        tadStartArr.append(np.count_nonzero(tadSignalVals == 0.0))
 
+    #plot
+    fig, (ax1, ax2, ax3) = plt.subplots(nrows=3, ncols=1)
+    proteinDf.signalValue.plot(kind='hist', density=True, bins=100, ax=ax1)
+    ax1.set_title("probability density for signalValue at chr" + chromosome)
+    p2 = ax2.hist(x=meanArr, bins=100, density=True)
+    ax2.set_title("probability density for mean at TAD boundaries at chr" + chromosome)
+    p3 = ax3.hist(x=tadStartArr, bins=60, density=True)
+    ax3.set_title("probability density for number of TAD starts/ends without protein at chr" + chromosome)
+    plt.show()
 
 def getTadDataFromBedFile(pBedFilePath):
     tadData = None
@@ -164,6 +185,7 @@ def getProteinDataFromPeakFile(pPeakFilePath):
 def binProteinDataFromPeaks(pProteinDf, pChrom, pMergeParam, pResolution):    
     mask = pProteinDf['chrom'] == "chr" + str(pChrom)
     proteinDf = pProteinDf[mask].copy()
+    nrOfPeaks = proteinDf.shape[0]
     proteinDf.drop(columns=['chrom','name', 'score', 'strand'], inplace=True)
     proteinDf['bin_id'] = ((proteinDf['chromStart'] + proteinDf['peak'])/pResolution).astype('uint32')
     #print(proteinDf.head(10))
@@ -171,7 +193,7 @@ def binProteinDataFromPeaks(pProteinDf, pChrom, pMergeParam, pResolution):
         binnedDf = proteinDf.groupby('bin_id')[['signalValue']].max()
     else:
         binnedDf = proteinDf.groupby('bin_id')[['signalValue']].mean()
-    return binnedDf
+    return binnedDf, nrOfPeaks
 
 def getChromSizes(pChromNameList, pChromSizeFile):
     chromSizeDict = dict()
