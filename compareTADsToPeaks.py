@@ -4,6 +4,7 @@ import pandas as pd
 import math
 import numpy as np
 from matplotlib import pyplot as plt
+from tqdm import tqdm
 
 
 @click.option('--tadboundaryfile', '-tbf', type=click.Path(exists=True), required=True, help="bed file with TAD boundaries")
@@ -48,6 +49,19 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
         tadDf['endProteins-' + str(i)] = list(proteinDf['signalValue'][bin_ids_minus])
         tadDf['endProteins+' + str(i)] = list(proteinDf['signalValue'][bin_ids_plus])
     
+    #add window proteins
+    tadDf['distance'] = (tadDf['bin_id_end'] - tadDf['bin_id_start']).astype('uint32')
+    winSize = tadDf.distance.max() + 1
+    windowDf = buildWindowDataset(proteinDf, 'signalValue', winSize, 'mean')
+    #get the window proteins into an array and slice it to get all values at once 
+    #there might be a more efficient way using pandas
+    distWindowArr = windowDf.to_numpy()
+    slice1 = list(tadDf['bin_id_end'])
+    slice2 = list(tadDf['distance'])
+    slice3 = (slice1, slice2)
+    windowProteins = np.array(distWindowArr[slice3])
+    tadDf['windowProteins'] = np.float32(windowProteins)
+
     #compute mean/min/max signalValue at boundaries 
     meanSignalValueAtStart = tadDf.startProteins.mean()
     medianSignalValueAtStart = tadDf.startProteins.median()
@@ -64,6 +78,12 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
     medianSignalValueOverall = proteinDf.signalValue.median()
     maxSignalValueOverall = proteinDf.signalValue.max()
     minSignalValueOverall = proteinDf.signalValue.min()
+
+    #compute mean/min/max window protein value for TADs
+    meanWindowValueAtTads = tadDf.windowProteins.mean()
+    medianWindowValueAtTads = tadDf.windowProteins.median()
+    maxWindowValueAtTads = tadDf.windowProteins.max()
+    minWindowValueAtTads = tadDf.windowProteins.min()
 
     #get all TAD bins which have zero signal value at start or end
     zeroAtStartMask = tadDf['startProteins'] == 0.0
@@ -101,6 +121,8 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
     print(msg.format(meanSignalValueAtStart, minSignalValueAtStart, maxSignalValueAtStart, medianSignalValueAtStart))
     msg = "mean signal value at TAD ends: {0:.3f} (min {1:.3f}, max {2:.3f}, med {3:.3f})"
     print(msg.format(meanSignalValueAtEnd, minSignalValueAtEnd, maxSignalValueAtEnd, medianSignalValueAtEnd))
+    msg = "mean signal value for TAD window proteins: {0:.3f} (min {1:.3f}, max {2:.3f}, med {3:.3f})"
+    print(msg.format(meanWindowValueAtTads, minWindowValueAtTads, maxWindowValueAtTads, medianWindowValueAtTads))
     msg = "{0:d} of {1:d} TADs have no protein at start bin"
     print(msg.format(zeroAtStartCount, tadCount))
     msg = "{0:d} of {1:d} TADs have no protein at start bin +/- {2:d} bins"
@@ -114,26 +136,43 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
     msg = "{0:d} of {1:d} TADs have no protein at start and end bin +/- {2:d} bins"
     print(msg.format(zeroAtStartEndPlusMinusCount, tadCount, nr_bins-1))
 
-    #build a pdf for signal values
-    valList = list(proteinDf.signalValue)
-    probabList = np.ones(len(valList)) * (1/proteinDf.shape[0])
-    
-    #build cdf for mean at TAD boundaries, nr TADs with no protein
-    meanArr = []
-    tadStartArr = []
-    for i in range(0,50000):
-        tadSignalVals = np.random.choice(valList, tadCount, replace=False,p=probabList)
-        meanArr.append(np.mean(tadSignalVals))
-        tadStartArr.append(np.count_nonzero(tadSignalVals == 0.0))
+    #build pdfs for mean at TAD boundaries, number of TADs with no protein
+    meanProtArr = []
+    tadStartWithoutProtArr = []
+    windowProtArr = []
+    maxWinSize = proteinDf.shape[0]
+    indexList = [x for x in range(0, maxWinSize)]
+    windowDf = buildWindowDataset(proteinDf, 'signalValue', maxWinSize, 'mean')
+    distWindowArr = windowDf.to_numpy()
+    for i in tqdm(range(0,10000), miniters=1000, desc="drawing indices for random TADs and computing proteins"):
+        #draw random TAD indices with equal probability and without replacement
+        #then get protein data for these indices
+        tadIndices = np.random.choice(indexList, tadCount + 1, replace=False)
+        tadSignalValues = list(proteinDf.loc[tadIndices,'signalValue'])
+        meanProtArr.append(np.mean(tadSignalValues))
+        tadStartWithoutProtArr.append(tadSignalValues.count(0.0))
+        tadIndices = sorted(tadIndices)
+        tadStartIndices = tadIndices[0:-2]
+        tadEndIndices = tadIndices[1:-1]
+        distanceList = list(np.subtract(tadEndIndices, tadStartIndices))
+        #slice the window array and get the mean out of all the windows        
+        windowSlice = (tadEndIndices, distanceList)
+        windowProteins = np.array(distWindowArr[windowSlice])
+        windowProtArr.append(np.mean(windowProteins))
 
     #plot
-    fig, (ax1, ax2, ax3) = plt.subplots(nrows=3, ncols=1)
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(nrows=2, ncols=2)
     proteinDf.signalValue.plot(kind='hist', density=True, bins=100, ax=ax1)
     ax1.set_title("probability density for signalValue at chr" + chromosome)
-    p2 = ax2.hist(x=meanArr, bins=100, density=True)
+    p2 = ax2.hist(x=meanProtArr, bins=100, density=True)
     ax2.set_title("probability density for mean at TAD boundaries at chr" + chromosome)
-    p3 = ax3.hist(x=tadStartArr, bins=60, density=True)
+    ax2.axvline(x=meanSignalValueAtBoundaries, color='red')
+    p3 = ax3.hist(x=tadStartWithoutProtArr, bins=max(tadStartWithoutProtArr)-min(tadStartWithoutProtArr), density=True)
     ax3.set_title("probability density for number of TAD starts/ends without protein at chr" + chromosome)
+    ax3.axvline(x=(zeroAtStartCount + zeroAtEndCount - zeroAtStartEndCount), color='red')
+    p4 = ax4.hist(x=windowProtArr, bins=100, density=True)
+    ax4.axvline(x=meanWindowValueAtTads,color='red')
+    ax4.set_title("probability density for mean of TAD window proteins")
     plt.show()
 
 def getTadDataFromBedFile(pBedFilePath):
@@ -218,6 +257,19 @@ def getChromSizes(pChromNameList, pChromSizeFile):
                 msg = "entry for chromosome {0:s} in chrom.sizes is not an integer".format(chromName)
     return chromSizeDict
 
+
+def buildWindowDataset(pProteinsDf, pProteinNr, pWindowSize, pWindowOperation):
+    df = pd.DataFrame()
+    proteinIndex = str(pProteinNr)
+    for winSize in range(pWindowSize):
+        if pWindowOperation == "max":
+            windowColumn = pProteinsDf[proteinIndex].rolling(window=winSize+1).max()
+        elif pWindowOperation == "sum":
+            windowColumn = pProteinsDf[proteinIndex].rolling(window=winSize+1).sum()
+        else:
+            windowColumn = pProteinsDf[proteinIndex].rolling(window=winSize+1).mean()
+        df[str(winSize)] = windowColumn.round(3).astype('float32')
+    return df
 
 if __name__ == "__main__":
     compareTadsToPeaks()
