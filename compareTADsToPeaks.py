@@ -5,16 +5,21 @@ import math
 import numpy as np
 from matplotlib import pyplot as plt
 from tqdm import tqdm
+import seaborn
 
 
-@click.option('--tadboundaryfile', '-tbf', type=click.Path(exists=True), required=True, help="bed file with TAD boundaries")
+@click.option('--taddomainfile', '-tdf', type=click.Path(exists=True), required=True, help="bed file with TAD boundaries")
 @click.option('--narrowpeakfile', '-npf', type=click.Path(exists=True), required=True, help="ChIP-seq narrowPeak file")
-@click.option('--outfile','-o',type=click.Path(writable=True), required=True, help="filename for resulting csv file")
+@click.option('--outfolder','-o',type=click.Path(writable=True, exists=True), required=True, help="filename for resulting csv file")
 @click.option('--chromosome', '-chr', type=str, required=True, help="chromosome to compute values for, omit 'chr' prefix")
 @click.option('--chromsizefile', '-csf', type=click.Path(exists=True), required=True, help="chromosome.size file (required for binning)")
+@click.option('--proteinname', '-prot', type=str, required=True, help="name of protein or Histone")
+@click.option('--cellline', '-cl', type=str, required=True, help="name of cellline")
+@click.option('--numberOfSamples', '-nrs', type=click.IntRange(min=1000), default=10000, help="number of sample TADs to draw")
+@click.option('--resolution', '-res', type=click.IntRange(min=5000), default=20000, help="resolution used for binning, must correspond to bin size of matrix from which TADs were created")
 @click.command()
-def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chromsizefile):
-    resolution = 20000
+def compareTadsToPeaks(taddomainfile, narrowpeakfile, outfolder, chromosome, chromsizefile, proteinname, cellline, numberofsamples, resolution):
+
     #load and bin the narrowpeak file
     peakDf = getProteinDataFromPeakFile(narrowpeakfile)
     peakDf, numberOfPeaks = binProteinDataFromPeaks(peakDf, chromosome, 'mean', resolution)
@@ -27,9 +32,10 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
     proteinDf.set_index('bin_id', inplace=True)
     proteinDf = proteinDf.join(peakDf, how='outer')
     proteinDf.fillna(0.0,inplace=True)
+    normalizeSignalValue(proteinDf)
 
     #get the TAD boundaries and assign bins to them
-    tadDf = getTadDataFromBedFile(tadboundaryfile)
+    tadDf = getTadDataFromBedFile(taddomainfile)
     tadDf = binTadsFromTadData(tadDf, chromosome, resolution)
 
     #get all proteins which are at TAD starts and end
@@ -91,7 +97,7 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
     zeroAtEndMask = tadDf['endProteins'] == 0.0
     zeroAtEndCount = tadDf[zeroAtEndMask].shape[0]
     zeroAtStartEndCount = tadDf[zeroAtStartMask & zeroAtEndMask].shape[0]
-    tadCount = tadDf.shape[0]
+    numberOfTads = tadDf.shape[0]
     
     #get all TAD bins which have zero signal value at start +/- nr_bins bins, end +/- 2 bins
     for i in range(1,nr_bins):
@@ -106,51 +112,103 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
     zeroAtStartEndPlusMinusCount = tadDf[startPlusMinusMask & endPlusMinusMask].shape[0]
 
     #print some figures
+    writeout = [cellline + " " + proteinname]
+    
     msg = "{0:d} TADs for chr{1:s} found in input"
-    print(msg.format(tadDf.shape[0],chromosome))
+    msg = msg.format(tadDf.shape[0],chromosome)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "{0:d} protein peaks for chr{1:s} found in input"
-    print(msg.format(numberOfPeaks,chromosome))
+    msg = msg.format(numberOfPeaks,chromosome)
+    writeout.append(msg)
+    print(msg)
+    
     print("after binning:")
     msg = "chr{0:s} comprises {1:d} bins, {2:d} of which have protein peaks"
-    print(msg.format(chromosome, maxBinInt, len(proteinDf.signalValue.to_numpy().nonzero()[0]) ))
+    msg = msg.format(chromosome, maxBinInt, len(proteinDf.signalValue.to_numpy().nonzero()[0]) )
+    writeout.append(msg)
+    print(msg)
+    
     msg = "mean signal value: {0:.3f} (min {1:.3f}, max {2:.3f}, med {3:.3f})"
-    print(msg.format(meanSignalValueOverall, minSignalValueOverall, maxSignalValueOverall, medianSignalValueOverall))
+    msg = msg.format(meanSignalValueOverall, minSignalValueOverall, maxSignalValueOverall, medianSignalValueOverall)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "mean signal value at TAD boundaries: {0:.3f}"
-    print(msg.format(meanSignalValueAtBoundaries))
+    msg = msg.format(meanSignalValueAtBoundaries)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "mean signal value at TAD starts: {0:.3f} (min {1:.3f}, max {2:.3f}, med {3:.3f})"
-    print(msg.format(meanSignalValueAtStart, minSignalValueAtStart, maxSignalValueAtStart, medianSignalValueAtStart))
+    msg = msg.format(meanSignalValueAtStart, minSignalValueAtStart, maxSignalValueAtStart, medianSignalValueAtStart)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "mean signal value at TAD ends: {0:.3f} (min {1:.3f}, max {2:.3f}, med {3:.3f})"
-    print(msg.format(meanSignalValueAtEnd, minSignalValueAtEnd, maxSignalValueAtEnd, medianSignalValueAtEnd))
+    msg = msg.format(meanSignalValueAtEnd, minSignalValueAtEnd, maxSignalValueAtEnd, medianSignalValueAtEnd)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "mean signal value for TAD window proteins: {0:.3f} (min {1:.3f}, max {2:.3f}, med {3:.3f})"
-    print(msg.format(meanWindowValueAtTads, minWindowValueAtTads, maxWindowValueAtTads, medianWindowValueAtTads))
+    msg = msg.format(meanWindowValueAtTads, minWindowValueAtTads, maxWindowValueAtTads, medianWindowValueAtTads)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "{0:d} of {1:d} TADs have no protein at start bin"
-    print(msg.format(zeroAtStartCount, tadCount))
+    msg = msg.format(zeroAtStartCount, numberOfTads)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "{0:d} of {1:d} TADs have no protein at start bin +/- {2:d} bins"
-    print(msg.format(zeroAtStartPlusMinusCount, tadCount, nr_bins-1))
+    msg = msg.format(zeroAtStartPlusMinusCount, numberOfTads, nr_bins-1)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "{0:d} of {1:d} TADs have no protein at end bin"
-    print(msg.format(zeroAtEndCount, tadCount))
+    msg = msg.format(zeroAtEndCount, numberOfTads)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "{0:d} of {1:d} TADs have no protein at end bin +/- {2:d} bins"
-    print(msg.format(zeroAtEndPlusMinusCount, tadCount, nr_bins-1))
+    msg = msg.format(zeroAtEndPlusMinusCount, numberOfTads, nr_bins-1)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "{0:d} of {1:d} TADs have no protein at start and end bin"
-    print(msg.format(zeroAtStartEndCount, tadCount))
+    msg = msg.format(zeroAtStartEndCount, numberOfTads)
+    writeout.append(msg)
+    print(msg)
+    
     msg = "{0:d} of {1:d} TADs have no protein at start and end bin +/- {2:d} bins"
-    print(msg.format(zeroAtStartEndPlusMinusCount, tadCount, nr_bins-1))
+    msg = msg.format(zeroAtStartEndPlusMinusCount, numberOfTads, nr_bins-1)
+    writeout.append(msg)
+    print(msg)
+
+    #also write the text to a file
+    resFileName = outfolder + cellline + "_" + proteinname + "_stats.txt"
+    with open(resFileName, "w") as outfile:
+        outfile.writelines("\n".join(writeout))
+
 
     #build pdfs for mean at TAD boundaries, number of TADs with no protein
-    meanProtArr = []
-    tadStartWithoutProtArr = []
+    tadBoundaryProtArr = []
+    tadBoundaryWithoutProtArr = []
     windowProtArr = []
+    tadBoundaryMeanProtArr = []
+    windowMeanProtArr = []
     maxWinSize = proteinDf.shape[0]
     indexList = [x for x in range(0, maxWinSize)]
     windowDf = buildWindowDataset(proteinDf, 'signalValue', maxWinSize, 'mean')
     distWindowArr = windowDf.to_numpy()
-    for i in tqdm(range(0,10000), miniters=1000, desc="drawing indices for random TADs and computing proteins"):
+    for i in tqdm(range(0,numberofsamples), miniters=1000, desc="drawing indices for random TADs and computing proteins"):
         #draw random TAD indices with equal probability and without replacement
         #then get protein data for these indices
-        tadIndices = np.random.choice(indexList, tadCount + 1, replace=False)
+        tadIndices = np.random.choice(indexList, numberOfTads + 1, replace=False)
         tadSignalValues = list(proteinDf.loc[tadIndices,'signalValue'])
-        meanProtArr.append(np.mean(tadSignalValues))
-        tadStartWithoutProtArr.append(tadSignalValues.count(0.0))
+        tadBoundaryProtArr.extend(tadSignalValues)
+        tadBoundaryMeanProtArr.append(np.mean(tadSignalValues))
+        tadBoundaryWithoutProtArr.append(tadSignalValues.count(0.0))
         tadIndices = sorted(tadIndices)
         tadStartIndices = tadIndices[0:-2]
         tadEndIndices = tadIndices[1:-1]
@@ -158,22 +216,112 @@ def compareTadsToPeaks(tadboundaryfile, narrowpeakfile, outfile, chromosome, chr
         #slice the window array and get the mean out of all the windows        
         windowSlice = (tadEndIndices, distanceList)
         windowProteins = np.array(distWindowArr[windowSlice])
-        windowProtArr.append(np.mean(windowProteins))
+        windowProtArr.extend(windowProteins)
+        windowMeanProtArr.append(np.mean(windowProteins))
 
-    #plot
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(nrows=2, ncols=2)
+    #plots
+    fig1, ((ax1, ax2), (ax3, ax4)) = plt.subplots(nrows=2, ncols=2, constrained_layout=True, figsize = (15,7))
     proteinDf.signalValue.plot(kind='hist', density=True, bins=100, ax=ax1)
-    ax1.set_title("probability density for signalValue at chr" + chromosome)
-    p2 = ax2.hist(x=meanProtArr, bins=100, density=True)
-    ax2.set_title("probability density for mean at TAD boundaries at chr" + chromosome)
-    ax2.axvline(x=meanSignalValueAtBoundaries, color='red')
-    p3 = ax3.hist(x=tadStartWithoutProtArr, bins=max(tadStartWithoutProtArr)-min(tadStartWithoutProtArr), density=True)
-    ax3.set_title("probability density for number of TAD starts/ends without protein at chr" + chromosome)
-    ax3.axvline(x=(zeroAtStartCount + zeroAtEndCount - zeroAtStartEndCount), color='red')
-    p4 = ax4.hist(x=windowProtArr, bins=100, density=True)
-    ax4.axvline(x=meanWindowValueAtTads,color='red')
-    ax4.set_title("probability density for mean of TAD window proteins")
-    plt.show()
+    seaborn.distplot(list(tadDf.startProteins), norm_hist=True,  bins=100, ax=ax2, hist=True, kde=False, label="signalValue at starts")
+    seaborn.distplot(list(tadDf.endProteins), norm_hist=True,  bins=100, ax=ax2, hist=True, kde=False, label="signalValue at ends")
+    windowProts = list(tadDf.windowProteins)
+    seaborn.distplot(windowProts, norm_hist=True, ax=ax4, hist=True, kde=False, label="window proteins")
+    pieSizes = [numberOfTads - zeroAtStartCount - zeroAtEndCount + zeroAtStartEndCount, 
+            zeroAtStartCount - zeroAtStartEndCount,
+            zeroAtEndCount - zeroAtStartEndCount,
+            zeroAtStartEndCount]
+    pieLabels = ["with start- and end proteins", 
+                "without start proteins",
+                "without end proteins",
+                "without start- and end proteins"]
+    ax3.pie(pieSizes, labels=pieLabels, startangle=-45 , autopct='%1.1f%%')
+    ax3.axis('equal')
+    ax1.set_title("probability density for signal value over whole chromosome")
+    ax2.set_title("probability density for signal value at TAD boundaries")
+    ax4.set_title("probability density for TAD window proteins")
+    ax3.set_title("TADs with and without proteins, total = " + str(numberOfTads) + " TADs")
+    ax1.set_ylabel("Frequency")
+    ax2.set_ylabel("Frequency")
+    ax4.set_ylabel("Frequency")
+    ax1.set_xlabel("signal value")
+    ax2.set_xlabel("signal value")
+    ax4.set_xlabel("window signal value")
+    ax1.set_xlim([-0.05, 1.05])
+    ax2.set_xlim([-0.05, 1.05])
+    ax4.set_xlim([-0.05, 1.05])
+    ax1.set_ylim([0,10])
+    ax2.set_ylim([0,10])
+    ax4.set_ylim([0,20])
+    ax1.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    ax2.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    ax4.set_yticks([0, 2.5, 5, 7.5, 10, 12.5, 15, 17.5, 20])
+    ax1.set_yticks([0, 2, 4, 6, 8, 10])
+    ax2.set_yticks([0, 2, 4, 6, 8, 10])
+    
+    
+    
+    fig1.suptitle("Metrics for proteins and actual TADs " + cellline + " chr" + chromosome + " " + proteinname)
+    #fig1.show()
+    fig1.savefig(outfolder + cellline + "_" + proteinname + "_proteinAndTadStats.png")
+
+    fig2 = plt.figure(constrained_layout=True, figsize=(15,7))
+    fig2Grid = fig2.add_gridspec(2,2)
+    ax5 = fig2.add_subplot(fig2Grid[0,1])
+    ax6 = fig2.add_subplot(fig2Grid[:,0])
+    ax7 = fig2.add_subplot(fig2Grid[1,1])
+    seaborn.distplot(tadBoundaryProtArr, bins=100, hist=True, norm_hist=True,ax=ax5, kde=False)
+    ax5.axvline(x=meanSignalValueAtBoundaries, color='red')
+    ax5.axvline(x=np.mean(tadBoundaryProtArr), color='blue')
+    seaborn.distplot(tadBoundaryWithoutProtArr, bins=max(tadBoundaryWithoutProtArr)-min(tadBoundaryWithoutProtArr), hist=True, norm_hist=True, ax=ax6, kde=True)
+    ax6.axvline(x=(zeroAtStartCount + zeroAtEndCount - zeroAtStartEndCount), color='red')
+    ax6.axvline(x=np.mean(tadBoundaryWithoutProtArr), color='blue' )
+    seaborn.distplot(windowProtArr, hist=True, norm_hist=True, kde=False, ax=ax7)
+    ax7.axvline(x=meanWindowValueAtTads,color='red')
+    ax7.axvline(x=np.mean(windowProtArr), color='blue')
+    ax5.set_title("probability density for signal value at TAD boundaries")
+    ax6.set_title("probability density for number of TAD boundaries without protein")
+    ax7.set_title("probability density for TAD window signal value")
+    ax5.set_ylabel("Frequency")
+    ax6.set_ylabel("Frequency")
+    ax7.set_ylabel("Frequency")
+    ax5.set_xlabel("signal value")
+    ax6.set_xlabel("number of TAD boundaries w/o protein")
+    ax7.set_xlabel("window signal value")
+    ax5.set_xlim([-0.05, 1.05])
+    ax7.set_xlim([-0.05, 1.05])
+    ax5.set_ylim([0, 10])
+    ax7.set_ylim([0,20])
+    ax5.set_yticks([0, 2, 4, 6, 8, 10])
+    ax7.set_yticks([0, 2.5, 5, 7.5, 10, 12.5, 15, 17.5, 20])
+    ax5.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    ax7.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    fig2.suptitle("Values from " + str(numberofsamples) + " sampled, random TADs vs. actuals, " + cellline + " chr" + chromosome + " " + proteinname)
+    #fig2.show()
+    fig2.savefig(outfolder + cellline + "_" + proteinname + "_sampleVsReal.png")
+
+    fig3, (f3ax1, f3ax2) = plt.subplots(nrows=1, ncols=2, constrained_layout=True, figsize = (15,7))
+    seaborn.distplot(tadBoundaryMeanProtArr, hist=True, kde=True, norm_hist=True, ax=f3ax1)
+    seaborn.distplot(windowMeanProtArr, hist=True,kde=True,norm_hist=True,ax=f3ax2)
+    f3ax1.axvline(x=np.mean(tadBoundaryMeanProtArr),color='blue')
+    f3ax1.axvline(x=meanSignalValueAtBoundaries, color='red')
+    f3ax2.axvline(x=np.mean(windowMeanProtArr),color='blue')
+    f3ax2.axvline(x=meanWindowValueAtTads, color='red')
+    f3ax1.set_xlim([0, 0.2])
+    f3ax2.set_xlim([0, 0.2])
+    f3ax1.set_ylim([0, 80])
+    f3ax2.set_ylim([0, 120])
+    f3ax1.set_xticks([0, 0.05, 0.1, 0.15, 0.2])
+    f3ax2.set_xticks([0, 0.05, 0.1, 0.15, 0.2])
+    f3ax1.set_yticks(np.linspace(0,80,num=7))
+    f3ax2.set_yticks(np.linspace(0,120,num=11))
+    f3ax1.set_ylabel("Frequency")
+    f3ax2.set_ylabel("Frequency")
+    f3ax1.set_xlabel("mean signal value")
+    f3ax2.set_xlabel("mean window signal value")
+    f3ax1.set_title("probability density for mean signal value at TAD boundaries")
+    f3ax2.set_title("probability density for mean TAD window signal value")
+    fig3.suptitle("Values from " + str(numberofsamples) + " sampled, random TADs vs. actuals, " + cellline + " chr" + chromosome + " " + proteinname)
+    fig3.savefig(outfolder + cellline + "_" + proteinname + "_mean_sampleVsReal.png")
 
 def getTadDataFromBedFile(pBedFilePath):
     tadData = None
@@ -270,6 +418,23 @@ def buildWindowDataset(pProteinsDf, pProteinNr, pWindowSize, pWindowOperation):
             windowColumn = pProteinsDf[proteinIndex].rolling(window=winSize+1).mean()
         df[str(winSize)] = windowColumn.round(3).astype('float32')
     return df
+
+def normalizeSignalValue(pProteinDf):
+    #inplace zero-to-one normalization of signal value
+    try:
+        maxSignalValue = pProteinDf.signalValue.max()
+        minSignalValue = pProteinDf.signalValue.min()
+    except:
+        msg = "can't normalize Dataframe without signalValue"
+        raise Warning(msg)
+    if minSignalValue == maxSignalValue:
+        msg = "no variance in protein data file"
+        pProteinDf['signalValue'] = 0.0
+        raise Warning(msg)
+    else:
+        diff = maxSignalValue - minSignalValue
+        pProteinDf['signalValue'] = ((pProteinDf['signalValue'] - minSignalValue) / diff).astype('float32')
+
 
 if __name__ == "__main__":
     compareTadsToPeaks()
