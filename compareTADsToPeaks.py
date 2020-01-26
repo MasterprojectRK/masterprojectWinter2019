@@ -98,7 +98,13 @@ def compareTadsToPeaks(taddomainfile, narrowpeakfile, outfolder, chromosome, chr
     zeroAtEndCount = tadDf[zeroAtEndMask].shape[0]
     zeroAtStartEndCount = tadDf[zeroAtStartMask & zeroAtEndMask].shape[0]
     numberOfTads = tadDf.shape[0]
-    
+
+    #prepare data for histogram of TAD distance
+    byDistanceDf = tadDf[~zeroAtStartMask & ~zeroAtEndMask]
+    distBins = np.arange(0, tadDf.distance.max(), 2)
+    print(pd.cut(byDistanceDf['distance'], bins=distBins).value_counts(sort=False))
+    print(pd.cut(tadDf['distance'], bins=distBins).value_counts(sort=False))
+
     #get all TAD bins which have zero signal value at start +/- nr_bins bins, end +/- 2 bins
     for i in range(1,nr_bins):
         zeroPlusMask = tadDf['startProteins+' + str(i)] == 0.0
@@ -322,6 +328,21 @@ def compareTadsToPeaks(taddomainfile, narrowpeakfile, outfolder, chromosome, chr
     f3ax2.set_title("probability density for mean TAD window signal value")
     fig3.suptitle("Values from " + str(numberofsamples) + " sampled, random TADs vs. actuals, " + cellline + " chr" + chromosome + " " + proteinname)
     fig3.savefig(outfolder + cellline + "_" + proteinname + "_mean_sampleVsReal.png")
+
+    if not byDistanceDf.empty:
+        fig4, (f4ax1,f4ax2) = plt.subplots(nrows=2, ncols=1, constrained_layout=True)
+        f4ax1.hist(list(byDistanceDf['distance']),bins=min(byDistanceDf.shape[0],50))
+        f4ax2.hist(list(tadDf['distance']), bins=100)
+        fig4.suptitle("TADs by distance " + cellline + " chr" + chromosome + " " + proteinname)
+        f4ax1.set_title("TADs with proteins at boundaries")
+        f4ax2.set_title("All TADs")
+        f4ax1.set_xlim(f4ax2.get_xlim())
+        f4ax1.set_ylim(f4ax2.get_ylim())
+        f4ax1.set_xlabel("distance / bins (resolution=" + str(resolution) + ")")
+        f4ax2.set_xlabel("distance / bins (resolution=" + str(resolution) + ")")
+        f4ax1.set_ylabel("Frequency")
+        f4ax2.set_ylabel("Frequency")
+        fig4.savefig(outfolder + cellline + "_" + proteinname + "_TADsByDistance.png")
 
 def getTadDataFromBedFile(pBedFilePath):
     tadData = None
