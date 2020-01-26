@@ -6,6 +6,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import seaborn
+import os
 
 
 @click.option('--taddomainfile', '-tdf', type=click.Path(exists=True), required=True, help="bed file with TAD boundaries")
@@ -99,12 +100,13 @@ def compareTadsToPeaks(taddomainfile, narrowpeakfile, outfolder, chromosome, chr
     zeroAtStartEndCount = tadDf[zeroAtStartMask & zeroAtEndMask].shape[0]
     numberOfTads = tadDf.shape[0]
 
-    #prepare data for histogram of TAD distance
-    byDistanceDf = tadDf[~zeroAtStartMask & ~zeroAtEndMask]
-    distBins = np.arange(0, tadDf.distance.max(), 2)
-    print(pd.cut(byDistanceDf['distance'], bins=distBins).value_counts(sort=False))
-    print(pd.cut(tadDf['distance'], bins=distBins).value_counts(sort=False))
-
+    #prepare data for plotting TAD distances
+    tadBinStepsize = 3
+    tadsWithProteinsAtBoundariesDf = tadDf[~zeroAtStartMask & ~zeroAtEndMask]
+    distBins = np.arange(0, tadDf.distance.max(), tadBinStepsize)
+    binnedTadsWithBoundariesList = list(pd.cut(tadsWithProteinsAtBoundariesDf['distance'], bins=distBins).value_counts(sort=False))
+    binnedTadsList = list(pd.cut(tadDf['distance'], bins=distBins).value_counts(sort=False))
+    
     #get all TAD bins which have zero signal value at start +/- nr_bins bins, end +/- 2 bins
     for i in range(1,nr_bins):
         zeroPlusMask = tadDf['startProteins+' + str(i)] == 0.0
@@ -120,13 +122,13 @@ def compareTadsToPeaks(taddomainfile, narrowpeakfile, outfolder, chromosome, chr
     #print some figures
     writeout = [cellline + " " + proteinname]
     
-    msg = "{0:d} TADs for chr{1:s} found in input"
-    msg = msg.format(tadDf.shape[0],chromosome)
+    msg = "{0:d} TADs for chr{1:s} found in input {2:s}"
+    msg = msg.format(tadDf.shape[0],chromosome, os.path.basename(taddomainfile))
     writeout.append(msg)
     print(msg)
     
-    msg = "{0:d} protein peaks for chr{1:s} found in input"
-    msg = msg.format(numberOfPeaks,chromosome)
+    msg = "{0:d} protein peaks for chr{1:s} found in input {2:s}"
+    msg = msg.format(numberOfPeaks,chromosome, os.path.basename(narrowpeakfile))
     writeout.append(msg)
     print(msg)
     
@@ -329,17 +331,20 @@ def compareTadsToPeaks(taddomainfile, narrowpeakfile, outfolder, chromosome, chr
     fig3.suptitle("Values from " + str(numberofsamples) + " sampled, random TADs vs. actuals, " + cellline + " chr" + chromosome + " " + proteinname)
     fig3.savefig(outfolder + cellline + "_" + proteinname + "_mean_sampleVsReal.png")
 
-    if not byDistanceDf.empty:
+    if not tadsWithProteinsAtBoundariesDf.empty:
         fig4, (f4ax1,f4ax2) = plt.subplots(nrows=2, ncols=1, constrained_layout=True)
-        f4ax1.hist(list(byDistanceDf['distance']),bins=min(byDistanceDf.shape[0],50))
-        f4ax2.hist(list(tadDf['distance']), bins=100)
+        xValsList = [resolution * x for x in distBins][0:-1]
+        f4ax1.bar(x=xValsList, height=binnedTadsWithBoundariesList, width=tadBinStepsize*resolution)
+        f4ax2.bar(x=xValsList, height=binnedTadsList,width=tadBinStepsize*resolution)
         fig4.suptitle("TADs by distance " + cellline + " chr" + chromosome + " " + proteinname)
-        f4ax1.set_title("TADs with proteins at boundaries")
+        f4ax1.set_title("only TADs with proteins at boundaries")
         f4ax2.set_title("All TADs")
         f4ax1.set_xlim(f4ax2.get_xlim())
         f4ax1.set_ylim(f4ax2.get_ylim())
-        f4ax1.set_xlabel("distance / bins (resolution=" + str(resolution) + ")")
-        f4ax2.set_xlabel("distance / bins (resolution=" + str(resolution) + ")")
+        f4ax1.set_xticklabels([x/1000000 for x in f4ax1.get_xticks()])
+        f4ax2.set_xticklabels([x/1000000 for x in f4ax2.get_xticks()])
+        f4ax1.set_xlabel("distance / Mbp")
+        f4ax2.set_xlabel("distance / Mbp")
         f4ax1.set_ylabel("Frequency")
         f4ax2.set_ylabel("Frequency")
         fig4.savefig(outfolder + cellline + "_" + proteinname + "_TADsByDistance.png")
